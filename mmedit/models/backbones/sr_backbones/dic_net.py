@@ -19,19 +19,22 @@ class FeedbackBlock(nn.Module):
         upscale_factor (int): upscale factor.
     """
 
-    def __init__(self, mid_channels, num_blocks, upscale_factor):
+    def __init__(self,
+                 mid_channels,
+                 num_blocks,
+                 upscale_factor,
+                 padding=2,
+                 prelu_init=0.2):
         super().__init__()
 
         stride = upscale_factor
-        padding = 2
         kernel_size = upscale_factor + 4
-        prelu_init = 0.2
 
         self.num_blocks = num_blocks
         self.need_reset = True
         self.last_hidden = None
 
-        self.first = nn.Sequential(
+        self.conv_first = nn.Sequential(
             nn.Conv2d(2 * mid_channels, mid_channels, kernel_size=1),
             nn.PReLU(init=prelu_init))
 
@@ -64,7 +67,7 @@ class FeedbackBlock(nn.Module):
                             mid_channels,
                             kernel_size=1), nn.PReLU(init=prelu_init)))
 
-        self.last = nn.Sequential(
+        self.conv_last = nn.Sequential(
             nn.Conv2d(num_blocks * mid_channels, mid_channels, kernel_size=1),
             nn.PReLU(init=prelu_init))
 
@@ -82,37 +85,76 @@ class FeedbackBlock(nn.Module):
             self.need_reset = False
 
         x = torch.cat((x, self.last_hidden), dim=1)
-        x = self.first(x)
+        x = self.conv_first(x)
 
-        lr_features = []
+        lr_features = [x]
         hr_features = []
-        lr_features.append(x)
 
         for idx in range(self.num_blocks):
             # when idx == 0, lr_features == [x]
-            lr = torch.cat(tuple(lr_features), 1)
+            lr = torch.cat(lr_features, 1)
             if idx > 0:
                 lr = self.lr_blocks[idx - 1](lr)
             hr = self.up_blocks[idx](lr)
 
             hr_features.append(hr)
 
-            hr = torch.cat(tuple(hr_features), 1)
+            hr = torch.cat(hr_features, 1)
             if idx > 0:
                 hr = self.hr_blocks[idx - 1](hr)
             lr = self.down_blocks[idx](hr)
 
             lr_features.append(lr)
 
-        output = torch.cat(tuple(lr_features[1:]), 1)
-        output = self.last(output)
+        output = torch.cat(lr_features[1:], 1)
+        output = self.conv_last(output)
 
         self.last_hidden = output
 
         return output
 
-    def reset_state(self):
-        """Reset 'self.need_reset' to 'True'.
-        """
 
-        self.need_reset = True
+class FeedbackBlockCustom(FeedbackBlock):
+    """Custom feedback block, will be used as the first feedback block.
+
+    Args:
+        in_channels (int): Number of channels in the input features.
+        mid_channels (int): Number of channels in the intermediate features.
+        num_blocks (int): Number of blocks.
+        upscale_factor (int): upscale factor.
+    """
+
+    def __init__(self, in_channels, mid_channels, num_blocks, upscale_factor):
+        super().__init__(mid_channels, num_blocks, upscale_factor)
+
+        prelu_init = 0.2
+        self.conv_first = nn.Sequential(
+            nn.Conv2d(in_channels, mid_channels, kernel_size=1),
+            nn.PReLU(init=prelu_init))
+
+    def forward(self, x):
+        x = self.conv_first(x)
+
+        lr_features = [x]
+        hr_features = []
+
+        for idx in range(self.num_blocks):
+            # when idx == 0, lr_features == [x]
+            lr = torch.cat(lr_features, 1)
+            if idx > 0:
+                lr = self.lr_blocks[idx - 1](lr)
+            hr = self.up_blocks[idx](lr)
+
+            hr_features.append(hr)
+
+            hr = torch.cat(hr_features, 1)
+            if idx > 0:
+                hr = self.hr_blocks[idx - 1](hr)
+            lr = self.down_blocks[idx](hr)
+
+            lr_features.append(lr)
+
+        output = torch.cat(lr_features[1:], 1)
+        output = self.conv_last(output)
+
+        return output
