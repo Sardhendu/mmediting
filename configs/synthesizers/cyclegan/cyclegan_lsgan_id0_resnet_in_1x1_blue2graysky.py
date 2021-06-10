@@ -85,7 +85,7 @@ test_pipeline = [
         meta_keys=['img_a_path', 'img_b_path'])
 ]
 
-data_root = '/home/ubuntu/mmediting/hackathon-dataset/cycle_gan_images'
+data_root = '/home/ubuntu/mmediting/hackathon-dataset/cycle_gan_images/split'
 data = dict(
     samples_per_gpu=1,
     workers_per_gpu=4,
